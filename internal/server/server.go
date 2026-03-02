@@ -7,17 +7,31 @@ import (
 	"strconv"
 	"time"
 
+	"scope/internal/ai"
+	"scope/internal/github"
+	"scope/internal/news"
+
 	_ "github.com/joho/godotenv/autoload"
 )
 
 type Server struct {
-	port int
+	port       int
+	ghClient   github.Client
+	newsClient news.Client
 }
 
 func NewServer() *http.Server {
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
+
+	aiClient, err := ai.NewClient(os.Getenv("GEMINI_API_KEY"))
+	if err != nil {
+		fmt.Printf("Warning: AI client initialization failed: %v. Search results will be limited.\n", err)
+	}
+
 	NewServer := &Server{
-		port: port,
+		port:       port,
+		ghClient:   github.NewClient(),
+		newsClient: news.NewClient(os.Getenv("NEWS_API_KEY"), aiClient),
 	}
 
 	// Declare Server config

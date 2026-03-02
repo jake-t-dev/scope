@@ -22,18 +22,37 @@ func (s *Server) RegisterRoutes() http.Handler {
 		MaxAge:           300,
 	}))
 
-	r.Get("/", s.HelloWorldHandler)
+	r.Get("/", s.HandleGitHubQuery)
 
 	return r
 }
 
-func (s *Server) HelloWorldHandler(w http.ResponseWriter, r *http.Request) {
-	resp := make(map[string]string)
-	resp["message"] = "Hello World"
+func (s *Server) HandleGitHubQuery(w http.ResponseWriter, r *http.Request) {
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		http.Error(w, "username is required", http.StatusBadRequest)
+		return
+	}
 
-	jsonResp, err := json.Marshal(resp)
+	interests, err := s.ghClient.GetUserInterests(r.Context(), username)
 	if err != nil {
-		log.Fatalf("error handling JSON marshal. Err: %v", err)
+		log.Printf("error fetching GitHub data. Err: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	news, err := s.newsClient.GetTailoredNews(r.Context(), interests)
+	if err != nil {
+		log.Printf("error fetching news data. Err: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResp, err := json.Marshal(news)
+	if err != nil {
+		log.Printf("error handling JSON marshal. Err: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 
 	_, _ = w.Write(jsonResp)

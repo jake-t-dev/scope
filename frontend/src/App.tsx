@@ -1,55 +1,109 @@
-import { useState } from 'react'
+import { useState, FormEvent } from 'react'
+
+interface NewsArticle {
+  source: {
+    id: string | null;
+    name: string;
+  };
+  author: string | null;
+  title: string;
+  description: string | null;
+  url: string;
+  urlToImage: string | null;
+  publishedAt: string;
+  content: string | null;
+}
 
 function App() {
-  const [count, setCount] = useState(0)
-  const [message, setMessage] = useState<string>('')
+  const [username, setUsername] = useState('')
+  const [articles, setArticles] = useState<NewsArticle[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const fetchData = () => {
-    fetch(`http://localhost:${import.meta.env.VITE_PORT}/`)
-      .then(response => response.text())
-      .then(data => setMessage(data))
-      .catch(error => console.error('Error fetching data:', error))
+  const fetchNews = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!username.trim()) return
+
+    setLoading(true)
+    setError(null)
+    setArticles([])
+
+    try {
+      const response = await fetch(`http://localhost:${import.meta.env.VITE_PORT}/?username=${encodeURIComponent(username)}`)
+      if (!response.ok) {
+        if (response.status === 400) throw new Error('Username is required')
+        if (response.status === 500) throw new Error('Server error or user not found')
+        throw new Error('Failed to fetch')
+      }
+      const data = await response.json()
+      setArticles(data || [])
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md mx-auto space-y-8">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            Welcome to Vite + React
-          </h1>
-          <p className="text-gray-600">
-            Get started by editing <code className="text-sm bg-gray-100 p-1 rounded">src/App.tsx</code>
-          </p>
-        </div>
+    <div className="min-h-screen bg-gray-100 py-8 px-4">
+      <div className="max-w-4xl mx-auto">
+        <header className="mb-8 text-center">
+          <h1 className="text-3xl font-bold text-gray-900">Your Tech News Feed</h1>
+          <p className="text-gray-600 mt-2">Curated based on your GitHub interests</p>
+        </header>
 
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <div className="text-center space-y-4">
-            <button
-              onClick={() => setCount((count) => count + 1)}
-              className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-md transition-colors"
-            >
-              Count is {count}
-            </button>
-            
-            <button
-              onClick={fetchData}
-              className="block w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-md transition-colors"
-            >
-              Fetch from Server
-            </button>
+        <form onSubmit={fetchNews} className="mb-8 max-w-md mx-auto flex gap-2">
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Enter GitHub Username"
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            required
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? 'Loading...' : 'Get News'}
+          </button>
+        </form>
 
-            {message && (
-              <div className="mt-4 p-4 bg-gray-50 rounded-md">
-                <p className="text-gray-700">Server Response:</p>
-                <p className="text-gray-900 font-medium">{message}</p>
-              </div>
-            )}
+        {error && <div className="text-red-500 text-center mb-6 bg-red-50 p-3 rounded-md border border-red-200">{error}</div>}
+        
+        {!loading && articles.length === 0 && !error && (
+          <div className="text-center text-gray-500">
+            Enter a GitHub username to see personalized tech news.
           </div>
-        </div>
-
-        <div className="text-center text-gray-500 text-sm">
-          Built with Vite, React, and Tailwind CSS
+        )}
+        
+        <div className="space-y-6">
+          {articles.map((article, i) => (
+            <div key={i} className="bg-white shadow rounded-lg p-6 hover:shadow-lg transition-shadow">
+              <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                <div className="flex-1">
+                  <h2 className="text-xl font-semibold mb-2">
+                    <a href={article.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                      {article.title}
+                    </a>
+                  </h2>
+                  <p className="text-sm text-gray-500 mb-2">
+                    {article.source.name} • {new Date(article.publishedAt).toLocaleDateString()}
+                  </p>
+                  <p className="text-gray-700 line-clamp-3">{article.description}</p>
+                </div>
+                {article.urlToImage && (
+                  <img 
+                    src={article.urlToImage} 
+                    alt={article.title} 
+                    className="w-full sm:w-48 h-32 object-cover rounded bg-gray-200 flex-shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
