@@ -31,7 +31,7 @@ func NewServer() *http.Server {
 	NewServer := &Server{
 		port:       port,
 		ghClient:   github.NewClient(),
-		newsClient: news.NewClient(os.Getenv("NEWS_API_KEY"), aiClient),
+		newsClient: news.NewClient(aiClient),
 	}
 
 	// Declare Server config

@@ -2,10 +2,12 @@ package news
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -29,10 +31,30 @@ type NewsSource struct {
 	Name string `json:"name"`
 }
 
-type newsAPIResponse struct {
-	Status       string        `json:"status"`
-	TotalResults int           `json:"totalResults"`
-	Articles     []NewsArticle `json:"articles"`
+// XML Structs for Google News RSS
+type RSS struct {
+	XMLName xml.Name `xml:"rss"`
+	Channel Channel  `xml:"channel"`
+}
+
+type Channel struct {
+	Title       string `xml:"title"`
+	Description string `xml:"description"`
+	Items       []Item `xml:"item"`
+}
+
+type Item struct {
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	PubDate     string `xml:"pubDate"`
+	Description string `xml:"description"`
+	Source      Source `xml:"source"`
+	GUID        string `xml:"guid"`
+}
+
+type Source struct {
+	Name string `xml:",chardata"`
+	URL  string `xml:"url,attr"`
 }
 
 type Client interface {
@@ -40,16 +62,14 @@ type Client interface {
 }
 
 type client struct {
-	apiKey string
-	http   *http.Client
-	ai     ai.Client
+	http *http.Client
+	ai   ai.Client
 }
 
-func NewClient(apiKey string, aiClient ai.Client) Client {
+func NewClient(aiClient ai.Client) Client {
 	return &client{
-		apiKey: apiKey,
-		http:   &http.Client{Timeout: 10 * time.Second},
-		ai:     aiClient,
+		http: &http.Client{Timeout: 10 * time.Second},
+		ai:   aiClient,
 	}
 }
 
@@ -91,10 +111,10 @@ func (c *client) GetTailoredNews(ctx context.Context, interests map[string]int) 
 				if i >= 5 {
 					break
 				}
-				
+
 				key := kv.Key
 				var term string
-				
+
 				// Handle ambiguous programming terms
 				switch strings.ToLower(key) {
 				case "go":
@@ -107,20 +127,25 @@ func (c *client) GetTailoredNews(ctx context.Context, interests map[string]int) 
 					// Wrap in quotes to handle multi-word interests correctly
 					term = fmt.Sprintf("%q", key)
 				}
-				
+
 				topInterests = append(topInterests, term)
 			}
 			query = fmt.Sprintf("(%s) AND technology", strings.Join(topInterests, " OR "))
 		}
 	}
 
-	baseURL := "https://newsapi.org/v2/everything"
+	// Google News RSS URL
+	baseURL := "https://news.google.com/rss/search"
+
+	// Filter by last month (using 'after:YYYY-MM-DD' syntax supported by Google News)
+	oneMonthAgo := time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+	finalQuery := fmt.Sprintf("%s after:%s", query, oneMonthAgo)
+
 	params := url.Values{}
-	params.Add("apiKey", c.apiKey)
-	params.Add("q", query)
-	params.Add("sortBy", "relevancy")
-	params.Add("language", "en")
-	params.Add("pageSize", "5") // Limit to 5 articles
+	params.Add("q", finalQuery)
+	params.Add("hl", "en-US")
+	params.Add("gl", "US")
+	params.Add("ceid", "US:en")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s?%s", baseURL, params.Encode()), nil)
 	if err != nil {
@@ -134,13 +159,52 @@ func (c *client) GetTailoredNews(ctx context.Context, interests map[string]int) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("news api returned non-200 status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("google news rss returned non-200 status: %d", resp.StatusCode)
 	}
 
-	var result newsAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	var rss RSS
+	if err := xml.NewDecoder(resp.Body).Decode(&rss); err != nil {
+		return nil, fmt.Errorf("failed to decode xml response: %w", err)
 	}
 
-	return result.Articles, nil
+	// Convert RSS items to NewsArticle
+	var articles []NewsArticle
+
+	// Limit to 5 articles
+	maxArticles := 5
+	for i, item := range rss.Channel.Items {
+		if i >= maxArticles {
+			break
+		}
+
+		pubDate, _ := time.Parse("Mon, 02 Jan 2006 15:04:05 GMT", item.PubDate)
+		if pubDate.IsZero() {
+			// Try without GMT or other formats if needed, but Google usually sends GMT
+			pubDate = time.Now()
+		}
+
+		articles = append(articles, NewsArticle{
+			Source: NewsSource{
+				ID:   "google-news",
+				Name: item.Source.Name,
+			},
+			Author:      item.Source.Name,
+			Title:       item.Title,
+			Description: cleanDescription(item.Description),
+			URL:         item.Link,
+			URLToImage:  "", // Not available in standard RSS
+			PublishedAt: pubDate,
+			Content:     "", // Not available in standard RSS
+		})
+	}
+
+	return articles, nil
+}
+
+// cleanDescription removes HTML tags and decodes entities
+func cleanDescription(htmlStr string) string {
+	// Simple regex to strip tags
+	re := regexp.MustCompile(`<[^>]*>`)
+	stripped := re.ReplaceAllString(htmlStr, "")
+	return html.UnescapeString(stripped)
 }
