@@ -37,7 +37,8 @@ Before running the application, ensure you have the following installed:
 3. Add your environment variables to `.env`:
    ```env
    PORT=8080
-   GEMINI_API_KEY=your_gemini_api_key_here
+   NEWS_API_KEY=your_news_api_key
+   GEMINI_API_KEY=your_gemini_api_key
    APP_ENV=development
    ```
 
